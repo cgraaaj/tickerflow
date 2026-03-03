@@ -67,8 +67,18 @@ class APIKeyRevokeView(APIView):
         return Response({"detail": "API key revoked."})
 
 
-class HealthCheckView(APIView):
-    """Liveness/readiness probe for Kubernetes."""
+class LivenessView(APIView):
+    """Liveness probe — confirms the process is alive. No external deps."""
+
+    permission_classes = []
+    authentication_classes = []
+
+    def get(self, request):
+        return Response({"status": "alive"})
+
+
+class ReadinessView(APIView):
+    """Readiness probe — confirms DB is reachable before accepting traffic."""
 
     permission_classes = []
     authentication_classes = []
@@ -77,9 +87,9 @@ class HealthCheckView(APIView):
         try:
             with connection.cursor() as cursor:
                 cursor.execute("SELECT 1")
-            return Response({"status": "healthy", "database": "ok"})
+            return Response({"status": "ready", "database": "ok"})
         except Exception as exc:
             return Response(
-                {"status": "unhealthy", "database": str(exc)},
+                {"status": "not_ready", "database": str(exc)},
                 status=status.HTTP_503_SERVICE_UNAVAILABLE,
             )

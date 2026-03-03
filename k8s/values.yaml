@@ -53,7 +53,7 @@ resources:
 
 livenessProbe:
   httpGet:
-    path: /api/v1/health/
+    path: /api/v1/health/live/
     port: http
   initialDelaySeconds: 15
   periodSeconds: 30
@@ -62,11 +62,11 @@ livenessProbe:
 
 readinessProbe:
   httpGet:
-    path: /api/v1/health/
+    path: /api/v1/health/ready/
     port: http
-  initialDelaySeconds: 5
+  initialDelaySeconds: 10
   periodSeconds: 10
-  timeoutSeconds: 3
+  timeoutSeconds: 5
   failureThreshold: 3
 
 autoscaling:

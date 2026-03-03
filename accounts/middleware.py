@@ -7,7 +7,8 @@ from .utils import hash_api_key
 
 EXEMPT_PATTERNS = [
     re.compile(r"^/admin/"),
-    re.compile(r"^/api/v1/health/"),
+    re.compile(r"^/api/v1/health/live/"),
+    re.compile(r"^/api/v1/health/ready/"),
     re.compile(r"^/static/"),
 ]
 
