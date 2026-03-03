@@ -1,0 +1,96 @@
+replicaCount: 2
+
+image:
+  repository: registry.cgraaaj.in/stock-x/tickerflow-svc
+  pullPolicy: IfNotPresent
+  tag: "latest"
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  create: true
+  automount: true
+  annotations: {}
+  name: "tickerflow-svc-sa"
+
+podAnnotations: {}
+podLabels: {}
+
+podSecurityContext: {}
+securityContext: {}
+
+service:
+  type: ClusterIP
+  port: 8000
+
+ingress:
+  enabled: false
+
+ingressRoute:
+  enabled: true
+  annotations:
+    kubernetes.io/ingress.class: traefik-external
+  entryPoints:
+    - websecure
+  routes:
+    - match: Host(`tickerflow.cgraaaj.in`) && PathPrefix(`/api`)
+      kind: Rule
+      services:
+        - name: tickerflow-svc-k8s
+          port: 8000
+  tls:
+    secretName: "wildcard-cgraaaj-in-tls"
+
+resources:
+  requests:
+    cpu: "100m"
+    memory: "256Mi"
+  limits:
+    cpu: "500m"
+    memory: "512Mi"
+
+livenessProbe:
+  httpGet:
+    path: /api/v1/health/
+    port: http
+  initialDelaySeconds: 15
+  periodSeconds: 30
+  timeoutSeconds: 5
+  failureThreshold: 3
+
+readinessProbe:
+  httpGet:
+    path: /api/v1/health/
+    port: http
+  initialDelaySeconds: 5
+  periodSeconds: 10
+  timeoutSeconds: 3
+  failureThreshold: 3
+
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 80
+
+volumes: []
+volumeMounts: []
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+env:
+  DJANGO_DEBUG: "False"
+  DJANGO_ALLOWED_HOSTS: "*"
+  DB_HOST: "192.168.1.40"
+  DB_PORT: "5432"
+  DB_NAME: "stock-dumps"
+  DB_USER: "sd_admin"
+  DB_CONN_MAX_AGE: "600"
+
+secrets:
+  DJANGO_SECRET_KEY: "CHANGE-ME-generate-a-long-random-string"
+  DB_PASSWORD: "CHANGE-ME-your-db-password"

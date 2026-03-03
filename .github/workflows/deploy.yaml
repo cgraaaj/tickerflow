@@ -1,0 +1,70 @@
+name: TickerFlow CI/CD Pipeline
+
+on:
+  push:
+    branches:
+      - main
+      - master
+  pull_request:
+    branches:
+      - main
+      - master
+
+env:
+  HELM_CHART_PATH: "./k8s/values.yaml"
+  HELM_CHART_YAML: "./k8s/Chart.yaml"
+
+  IMAGE_REGISTRY: "registry.cgraaaj.in"
+  IMAGE_REPOSITORY: "stock-x"
+  IMAGE_NAME: "tickerflow-svc"
+  IMAGE_TAG: ${{ github.sha }}
+  BUILDKIT_NO_CLIENT_TOKEN: "true"
+
+jobs:
+  build-and-deploy:
+    name: Build and Deploy
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
+
+    steps:
+    - name: Checkout App Repo
+      uses: actions/checkout@v4
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: Docker Login to Harbor
+      run: |
+        echo "${{ secrets.HARBOR_PASSWORD }}" | docker login ${{ env.IMAGE_REGISTRY }} -u ${{ secrets.HARBOR_USERNAME }} --password-stdin
+
+    - name: Build and Push Image
+      run: |
+        SHORT_SHA=$(echo $GITHUB_SHA | head -c7)
+        docker buildx build \
+          --platform linux/amd64,linux/arm64 \
+          --push \
+          -t ${{ env.IMAGE_REGISTRY }}/${{ env.IMAGE_REPOSITORY }}/${{ env.IMAGE_NAME }}:${SHORT_SHA} \
+          -t ${{ env.IMAGE_REGISTRY }}/${{ env.IMAGE_REPOSITORY }}/${{ env.IMAGE_NAME }}:latest \
+          .
+
+    - name: Update Helm Values
+      run: |
+        SHORT_SHA=$(echo $GITHUB_SHA | head -c7)
+        sed -i "s|repository: .*|repository: ${{ env.IMAGE_REGISTRY }}/${{ env.IMAGE_REPOSITORY }}/${{ env.IMAGE_NAME }}|" ${{ env.HELM_CHART_PATH }}
+        sed -i "s|tag: .*|tag: \"${SHORT_SHA}\"|" ${{ env.HELM_CHART_PATH }}
+
+    - name: Bump Helm Chart Version
+      run: |
+        CURRENT_VERSION=$(grep "version:" ${{ env.HELM_CHART_YAML }} | awk '{print $2}' | tr -d '"')
+        NEW_VERSION=$(echo $CURRENT_VERSION | awk -F. -v OFS=. '{$NF += 1 ; print}')
+        sed -i "s/version: .*/version: \"$NEW_VERSION\"/" ${{ env.HELM_CHART_YAML }}
+        echo "Updated chart version from $CURRENT_VERSION to $NEW_VERSION"
+
+    - name: Commit and Push Helm Changes
+      run: |
+        git config --global user.email "bot@cgraaaj.in"
+        git config --global user.name "GitHub Actions Bot"
+        SHORT_SHA=$(echo $GITHUB_SHA | head -c7)
+        git add ${{ env.HELM_CHART_PATH }} ${{ env.HELM_CHART_YAML }}
+        git commit -m "Update ${{ env.IMAGE_NAME }} image to ${SHORT_SHA} and bump chart version" || exit 0
+        git push origin HEAD

@@ -1,0 +1,23 @@
+TickerFlow API has been deployed!
+
+{{- if .Values.ingressRoute.enabled }}
+
+Access the API via Traefik IngressRoute:
+{{- range .Values.ingressRoute.routes }}
+  https://{{ regexReplaceAll "Host\\(`([^`]+)`\\).*" .match "${1}" }}
+{{- end }}
+
+{{- else if .Values.ingress.enabled }}
+{{- range $host := .Values.ingress.hosts }}
+  {{- range .paths }}
+  http{{ if $.Values.ingress.tls }}s{{ end }}://{{ $host.host }}{{ .path }}
+  {{- end }}
+{{- end }}
+
+{{- else if contains "ClusterIP" .Values.service.type }}
+
+Get the application URL by running:
+  export POD_NAME=$(kubectl get pods --namespace {{ .Release.Namespace }} -l "app.kubernetes.io/name={{ include "k8s.name" . }},app.kubernetes.io/instance={{ .Release.Name }}" -o jsonpath="{.items[0].metadata.name}")
+  kubectl --namespace {{ .Release.Namespace }} port-forward $POD_NAME 8000:{{ .Values.service.port }}
+  echo "Visit http://127.0.0.1:8000/api/v1/health/ to verify"
+{{- end }}
