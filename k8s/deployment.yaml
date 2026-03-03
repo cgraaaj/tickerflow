@@ -1,0 +1,56 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tickerflow-api
+  namespace: tickerflow
+  labels:
+    app: tickerflow
+    component: api
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: tickerflow
+      component: api
+  template:
+    metadata:
+      labels:
+        app: tickerflow
+        component: api
+    spec:
+      containers:
+        - name: tickerflow-api
+          image: tickerflow:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8000
+              protocol: TCP
+          envFrom:
+            - configMapRef:
+                name: tickerflow-config
+            - secretRef:
+                name: tickerflow-secret
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "256Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+          livenessProbe:
+            httpGet:
+              path: /api/v1/health/
+              port: 8000
+            initialDelaySeconds: 15
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /api/v1/health/
+              port: 8000
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+      restartPolicy: Always
