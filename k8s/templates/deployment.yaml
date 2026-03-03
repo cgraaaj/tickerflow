@@ -84,7 +84,7 @@ spec:
               echo "=== Sourcing Vault secrets ==="
               set -a
               {{- range $f := .Values.runtime.sourceInjectedFiles.files }}
-              [ -f "/vault/secrets/{{ $f }}" ] && source "/vault/secrets/{{ $f }}" || true
+              [ -f "/vault/secrets/{{ $f }}" ] && . "/vault/secrets/{{ $f }}" || true
               {{- end }}
               set +a
               echo "=== Starting app ==="
