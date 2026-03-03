@@ -35,7 +35,7 @@ ingressRoute:
   entryPoints:
     - websecure
   routes:
-    - match: Host(`tickerflow.cgraaaj.in`) && PathPrefix(`/api`)
+    - match: Host(`tickerflow.cgraaaj.in`) && (PathPrefix(`/api`) || PathPrefix(`/admin`) || PathPrefix(`/static`))
       kind: Rule
       services:
         - port: 8000
