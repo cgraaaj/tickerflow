@@ -82,11 +82,14 @@ nodeSelector: {}
 tolerations: []
 affinity: {}
 
+externalDatabase:
+  enabled: true
+  host: "192.168.1.40"
+  port: 5432
+
 env:
   DJANGO_DEBUG: "False"
   DJANGO_ALLOWED_HOSTS: "*"
-  DB_HOST: "192.168.1.40"
-  DB_PORT: "5432"
   DB_NAME: "stock-dumps"
   DB_USER: "sd_admin"
   DB_CONN_MAX_AGE: "600"

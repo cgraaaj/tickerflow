@@ -53,6 +53,12 @@ spec:
                   name: {{ include "k8s.fullname" $ }}-secret
                   key: {{ $key }}
             {{- end }}
+            {{- if .Values.externalDatabase.enabled }}
+            - name: DB_HOST
+              value: {{ include "k8s.fullname" . }}-db
+            - name: DB_PORT
+              value: {{ .Values.externalDatabase.port | default 5432 | quote }}
+            {{- end }}
           livenessProbe:
             {{- toYaml .Values.livenessProbe | nindent 12 }}
           readinessProbe:

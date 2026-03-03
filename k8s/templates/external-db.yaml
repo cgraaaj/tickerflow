@@ -1,0 +1,31 @@
+{{- if .Values.externalDatabase.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "k8s.fullname" . }}-db
+  labels:
+    {{- include "k8s.labels" . | nindent 4 }}
+    app.kubernetes.io/component: external-database
+spec:
+  type: ClusterIP
+  ports:
+    - port: {{ .Values.externalDatabase.port | default 5432 }}
+      targetPort: {{ .Values.externalDatabase.port | default 5432 }}
+      protocol: TCP
+      name: postgres
+---
+apiVersion: v1
+kind: Endpoints
+metadata:
+  name: {{ include "k8s.fullname" . }}-db
+  labels:
+    {{- include "k8s.labels" . | nindent 4 }}
+    app.kubernetes.io/component: external-database
+subsets:
+  - addresses:
+      - ip: {{ .Values.externalDatabase.host | quote }}
+    ports:
+      - port: {{ .Values.externalDatabase.port | default 5432 }}
+        protocol: TCP
+        name: postgres
+{{- end }}
