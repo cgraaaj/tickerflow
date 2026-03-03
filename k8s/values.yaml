@@ -38,8 +38,7 @@ ingressRoute:
     - match: Host(`tickerflow.cgraaaj.in`) && PathPrefix(`/api`)
       kind: Rule
       services:
-        - name: tickerflow-svc-k8s
-          port: 8000
+        - port: 8000
   tls:
     secretName: "wildcard-cgraaaj-in-tls"
 
