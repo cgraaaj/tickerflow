@@ -3,7 +3,7 @@ replicaCount: 2
 image:
   repository: registry.cgraaaj.in/stock-x/tickerflow-svc
   pullPolicy: IfNotPresent
-  tag: "562f577"
+  tag: "8849a29"
 
 imagePullSecrets: []
 nameOverride: ""
