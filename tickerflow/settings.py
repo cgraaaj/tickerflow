@@ -68,13 +68,22 @@ WSGI_APPLICATION = "tickerflow.wsgi.application"
 # --- Database ---
 # Django ORM tables live in the 'tickerflow' schema.
 # Raw SQL queries target 'options' schema for time-series data.
+#
+# ENGINE uses a custom backend that re-reads Vault-injected credentials
+# from VAULT_DB_CREDS_PATH on each new connection so dynamic leases
+# survive rotation without a pod restart.  Falls back to env vars for
+# local development when the file is absent.
+
+VAULT_DB_CREDS_PATH = os.environ.get(
+    "VAULT_DB_CREDS_PATH", "/vault/secrets/db-creds"
+)
 
 _db_password = os.environ.get("DB_PASSWORD", "")
 _encoded_password = quote(_db_password) if _db_password else ""
 
 DATABASES = {
     "default": {
-        "ENGINE": "django.db.backends.postgresql",
+        "ENGINE": "tickerflow.db_backend",
         "NAME": os.environ.get("DB_NAME", "stock-dumps"),
         "USER": os.environ.get("DB_USER", "sd_admin"),
         "PASSWORD": _db_password,
@@ -83,7 +92,7 @@ DATABASES = {
         "OPTIONS": {
             "options": "-c search_path=tickerflow,public",
         },
-        "CONN_MAX_AGE": int(os.environ.get("DB_CONN_MAX_AGE", "600")),
+        "CONN_MAX_AGE": int(os.environ.get("DB_CONN_MAX_AGE", "300")),
     },
 }
 
@@ -181,6 +190,11 @@ LOGGING = {
             "propagate": False,
         },
         "accounts.ratelimit": {
+            "handlers": ["console"],
+            "level": "INFO",
+            "propagate": False,
+        },
+        "tickerflow.db_backend": {
             "handlers": ["console"],
             "level": "INFO",
             "propagate": False,

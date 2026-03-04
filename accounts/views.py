@@ -78,17 +78,24 @@ class LivenessView(APIView):
 
 
 class ReadinessView(APIView):
-    """Readiness probe — confirms DB is reachable before accepting traffic."""
+    """
+    Readiness probe — confirms DB is reachable before accepting traffic.
+
+    Closes any stale connection first so the custom backend can establish
+    a fresh one with the latest Vault credentials.
+    """
 
     permission_classes = []
     authentication_classes = []
 
     def get(self, request):
         try:
+            connection.close_if_unusable_or_obsolete()
             with connection.cursor() as cursor:
                 cursor.execute("SELECT 1")
             return Response({"status": "ready", "database": "ok"})
         except Exception as exc:
+            connection.close()
             return Response(
                 {"status": "not_ready", "database": str(exc)},
                 status=status.HTTP_503_SERVICE_UNAVAILABLE,
