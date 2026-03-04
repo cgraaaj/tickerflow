@@ -126,6 +126,7 @@ runtime:
 env:
   DJANGO_DEBUG: "False"
   DJANGO_ALLOWED_HOSTS: "*"
+  CSRF_TRUSTED_ORIGINS: "https://tickerflow.cgraaaj.in"
   DB_NAME: "stock-dumps"
   DB_CONN_MAX_AGE: "600"
 

@@ -131,6 +131,10 @@ _cors_origins = os.environ.get("CORS_ALLOWED_ORIGINS", "")
 CORS_ALLOWED_ORIGINS = [o.strip() for o in _cors_origins.split(",") if o.strip()]
 CORS_ALLOW_ALL_ORIGINS = DEBUG
 
+# --- CSRF ---
+_csrf_origins = os.environ.get("CSRF_TRUSTED_ORIGINS", "")
+CSRF_TRUSTED_ORIGINS = [o.strip() for o in _csrf_origins.split(",") if o.strip()]
+
 # --- API Key settings ---
 API_KEY_LENGTH = 40
 API_KEY_PREFIX_LENGTH = 8
