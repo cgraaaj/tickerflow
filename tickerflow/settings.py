@@ -144,10 +144,12 @@ REDIS_URL = os.environ.get("REDIS_URL", "redis://localhost:6379/0")
 
 # --- Rate Limiting ---
 # Requests per minute per API key, keyed by user tier.
+# A value of 0 means unlimited (no rate limiting applied).
 RATE_LIMITS = {
     "basic": 60,
     "pro": 300,
     "enterprise": 1000,
+    "internal": 0,
 }
 RATE_LIMIT_WINDOW_SECONDS = 60
 

@@ -285,6 +285,120 @@ def get_instruments(
     return _execute(sql, params)
 
 
+def get_instruments_batch(
+    stock_ids: list[str] | None = None,
+    stock_names: list[str] | None = None,
+    instrument_type: str | None = None,
+    expiry: str | None = None,
+    limit: int = 2000,
+) -> tuple[list[dict], float]:
+    """
+    Fetch instruments for multiple stocks in a single query.
+
+    Accepts either a list of stock UUIDs or a list of stock names (not both).
+    Designed for batch consumers (e.g. option-chain screeners, backtest
+    pipelines) that need instruments across many underlyings at once.
+    """
+    use_join = stock_names is not None and len(stock_names) > 0
+    where_clauses: list[str] = []
+    params: list = []
+
+    if stock_ids:
+        placeholders = ", ".join(["%s"] * len(stock_ids))
+        where_clauses.append(f"i.stock_id IN ({placeholders})")
+        params.extend(stock_ids)
+
+    if stock_names:
+        placeholders = ", ".join(["%s"] * len(stock_names))
+        where_clauses.append(f"s.name IN ({placeholders})")
+        params.extend(stock_names)
+
+    if instrument_type:
+        where_clauses.append("i.instrument_type = %s")
+        params.append(instrument_type.upper())
+
+    if expiry:
+        where_clauses.append("i.expiry = %s")
+        params.append(expiry)
+
+    where = ("WHERE " + " AND ".join(where_clauses)) if where_clauses else ""
+    join_clause = "JOIN options.stock s ON s.id = i.stock_id" if use_join else ""
+
+    sql = f"""
+        SELECT i.id, i.instrument_seq, i.stock_id, i.trading_symbol,
+               i.instrument_key, i.strike_price, i.instrument_type,
+               i.expiry, i.lot_size, i.exchange
+        FROM options.instrument i
+        {join_clause}
+        {where}
+        ORDER BY i.stock_id, i.strike_price
+        LIMIT %s
+    """
+    params.append(limit)
+
+    rows, elapsed_ms = _execute(sql, params)
+    logger.info(
+        "get_instruments_batch stock_ids=%s stock_names=%s rows=%d elapsed_ms=%.2f",
+        stock_ids, stock_names, len(rows), elapsed_ms,
+    )
+    return rows, elapsed_ms
+
+
+def get_ticks_batch(
+    instrument_ids: list[int],
+    start: datetime | None = None,
+    end: datetime | None = None,
+    limit: int = 50000,
+) -> tuple[list[dict], int, float]:
+    """
+    Fetch tick data for multiple instruments in a single query.
+
+    Returns rows ordered by (instrument_id, time_stamp) so callers can
+    groupby instrument locally.  Skips per-instrument pagination — batch
+    consumers typically want all rows within a time window.
+
+    Returns:
+        (rows, total_count, elapsed_ms)
+    """
+    placeholders = ", ".join(["%s"] * len(instrument_ids))
+    where_clauses = [f"instrument_id IN ({placeholders})"]
+    params: list = list(instrument_ids)
+
+    if start:
+        where_clauses.append("time_stamp >= %s")
+        params.append(start)
+    if end:
+        where_clauses.append("time_stamp <= %s")
+        params.append(end)
+
+    where = " AND ".join(where_clauses)
+
+    count_sql = f"SELECT COUNT(*) FROM options.ticker_ts WHERE {where}"
+    data_sql = f"""
+        SELECT instrument_id, time_stamp, open, high, low, close, volume, open_interest
+        FROM options.ticker_ts
+        WHERE {where}
+        ORDER BY instrument_id, time_stamp
+        LIMIT %s
+    """
+
+    t0 = time.monotonic()
+    with connection.cursor() as cursor:
+        cursor.execute(count_sql, params)
+        total_count = cursor.fetchone()[0]
+
+        cursor.execute(data_sql, params + [limit])
+        columns = [col.name for col in cursor.description]
+        rows = [dict(zip(columns, row)) for row in cursor.fetchall()]
+
+    elapsed_ms = round((time.monotonic() - t0) * 1000, 2)
+    logger.info(
+        "get_ticks_batch ids=%s start=%s end=%s rows=%d total=%d elapsed_ms=%.2f",
+        instrument_ids, start, end, len(rows), total_count, elapsed_ms,
+    )
+    return rows, total_count, elapsed_ms
+
+
 def get_expiries(
     instrument_type: str | None = None,
 ) -> tuple[list[dict], float]:

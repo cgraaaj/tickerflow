@@ -32,12 +32,17 @@ class UsageTrackingMixin:
     """
 
     def dispatch(self, request, *args, **kwargs):
-        # Pre-check: read the user set by APIKeyAuthMiddleware on the
-        # original Django HttpRequest BEFORE DRF's dispatch runs.
         user = getattr(request, "user", None)
         api_key = getattr(request, "api_key", None)
 
-        if user and hasattr(user, "balance") and not user.is_anonymous:
+        is_internal = (
+            user
+            and hasattr(user, "tier")
+            and not user.is_anonymous
+            and user.tier == "internal"
+        )
+
+        if not is_internal and user and hasattr(user, "balance") and not user.is_anonymous:
             if user.balance < MIN_BALANCE_REQUIRED:
                 return JsonResponse(
                     {
@@ -49,7 +54,6 @@ class UsageTrackingMixin:
 
         response = super().dispatch(request, *args, **kwargs)
 
-        # Post-check: after DRF dispatch, self.request is the DRF Request.
         drf_request = getattr(self, "request", request)
         user = getattr(drf_request, "user", None)
 
@@ -60,32 +64,44 @@ class UsageTrackingMixin:
             return response
 
         units = self._count_units(response)
-        cost = units * COST_PER_UNIT
-
-        # Atomic deduction using F() to avoid race conditions
-        CustomUser.objects.filter(pk=user.pk).update(balance=F("balance") - cost)
-        user.refresh_from_db(fields=["balance"])
-
         api_key_prefix = api_key.prefix if api_key else ""
 
         query_ms = None
         if hasattr(response, "data") and isinstance(response.data, dict):
             query_ms = response.data.get("query_ms")
 
-        UsageLedger.objects.create(
-            user=user,
-            api_key_prefix=api_key_prefix,
-            endpoint=drf_request.path,
-            method=drf_request.method,
-            units_consumed=units,
-            balance_after=user.balance,
-            query_ms=query_ms,
-        )
+        if is_internal:
+            UsageLedger.objects.create(
+                user=user,
+                api_key_prefix=api_key_prefix,
+                endpoint=drf_request.path,
+                method=drf_request.method,
+                units_consumed=units,
+                balance_after=user.balance,
+                query_ms=query_ms,
+            )
+            logger.info(
+                "usage [internal] user=%s endpoint=%s units=%d (no charge)",
+                user.email, drf_request.path, units,
+            )
+        else:
+            cost = units * COST_PER_UNIT
+            CustomUser.objects.filter(pk=user.pk).update(balance=F("balance") - cost)
+            user.refresh_from_db(fields=["balance"])
 
-        logger.info(
-            "usage user=%s endpoint=%s units=%d cost=%s balance_after=%s",
-            user.email, drf_request.path, units, cost, user.balance,
-        )
+            UsageLedger.objects.create(
+                user=user,
+                api_key_prefix=api_key_prefix,
+                endpoint=drf_request.path,
+                method=drf_request.method,
+                units_consumed=units,
+                balance_after=user.balance,
+                query_ms=query_ms,
+            )
+            logger.info(
+                "usage user=%s endpoint=%s units=%d cost=%s balance_after=%s",
+                user.email, drf_request.path, units, cost, user.balance,
+            )
 
         return response
 

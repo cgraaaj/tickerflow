@@ -32,13 +32,19 @@ class InstrumentListView(UsageTrackingMixin, APIView):
     """
     List instruments with optional filters.
 
-    Query params:
+    Single-stock query params:
         stock_id (UUID, optional)
         stock_name (str, optional): filter by stock name
+
+    Batch query params (mutually exclusive with single-stock equivalents):
+        stock_ids (str, optional): comma-separated UUIDs (max 20)
+        stock_names (str, optional): comma-separated names (max 20)
+
+    Common filters:
         instrument_type (str, optional): CE, PE, or FUT
         expiry (date, optional): YYYY-MM-DD
         nearest_strike (float, optional): order results by proximity to this price
-        limit (int, optional): default 50, max 500
+        limit (int, optional): default 50, max 2000
     """
 
     def get(self, request):
@@ -46,14 +52,26 @@ class InstrumentListView(UsageTrackingMixin, APIView):
         serializer.is_valid(raise_exception=True)
         params = serializer.validated_data
 
-        instruments, elapsed_ms = queries.get_instruments(
-            stock_id=str(params["stock_id"]) if params["stock_id"] else None,
-            stock_name=params["stock_name"],
-            instrument_type=params["instrument_type"],
-            expiry=str(params["expiry"]) if params["expiry"] else None,
-            nearest_strike=params["nearest_strike"],
-            limit=params["limit"],
-        )
+        is_batch = "_stock_id_list" in params or "_stock_name_list" in params
+
+        if is_batch:
+            instruments, elapsed_ms = queries.get_instruments_batch(
+                stock_ids=params.get("_stock_id_list"),
+                stock_names=params.get("_stock_name_list"),
+                instrument_type=params["instrument_type"],
+                expiry=str(params["expiry"]) if params["expiry"] else None,
+                limit=params["limit"],
+            )
+        else:
+            instruments, elapsed_ms = queries.get_instruments(
+                stock_id=str(params["stock_id"]) if params["stock_id"] else None,
+                stock_name=params["stock_name"],
+                instrument_type=params["instrument_type"],
+                expiry=str(params["expiry"]) if params["expiry"] else None,
+                nearest_strike=params["nearest_strike"],
+                limit=params["limit"],
+            )
+
         return Response({
             "count": len(instruments),
             "query_ms": elapsed_ms,
@@ -81,20 +99,42 @@ class ExpiryListView(UsageTrackingMixin, APIView):
 
 class TickListView(UsageTrackingMixin, APIView):
     """
-    Fetch historical tick data (1-minute OHLCV) for an instrument.
+    Fetch historical tick data (1-minute OHLCV) for one or more instruments.
 
-    Query params:
-        instrument_id (int, required): instrument sequence ID
+    Single-instrument query params:
+        instrument_id (int): instrument sequence ID
+
+    Batch query param (mutually exclusive with instrument_id):
+        instrument_ids (str): comma-separated instrument sequence IDs (max 50)
+
+    Common filters:
         start (datetime, optional): inclusive start time (ISO 8601)
         end (datetime, optional): inclusive end time (ISO 8601)
-        limit (int, optional): max rows to return (default 100, max 10000)
-        offset (int, optional): pagination offset (default 0)
+        limit (int, optional): max rows (default 100, max 50000)
+        offset (int, optional): pagination offset (default 0, single mode only)
     """
 
     def get(self, request):
         serializer = TickQuerySerializer(data=request.query_params)
         serializer.is_valid(raise_exception=True)
         params = serializer.validated_data
+
+        is_batch = "_instrument_id_list" in params
+
+        if is_batch:
+            rows, total_count, elapsed_ms = queries.get_ticks_batch(
+                instrument_ids=params["_instrument_id_list"],
+                start=params["start"],
+                end=params["end"],
+                limit=params["limit"],
+            )
+            return Response({
+                "count": len(rows),
+                "total": total_count,
+                "limit": params["limit"],
+                "query_ms": elapsed_ms,
+                "results": rows,
+            })
 
         rows, total_count, elapsed_ms = queries.get_ticks(
             instrument_id=params["instrument_id"],

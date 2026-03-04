@@ -76,6 +76,9 @@ class RateLimitMiddleware:
         max_requests = limits.get(tier, limits.get("basic", 60))
         window = getattr(settings, "RATE_LIMIT_WINDOW_SECONDS", 60)
 
+        if max_requests == 0:
+            return self.get_response(request)
+
         cache_key = f"rl:{api_key.prefix}:{int(time.time()) // window}"
 
         try:

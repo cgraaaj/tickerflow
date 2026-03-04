@@ -17,6 +17,7 @@ class CustomUser(AbstractBaseUser, PermissionsMixin):
         BASIC = "basic", "Basic"
         PRO = "pro", "Pro"
         ENTERPRISE = "enterprise", "Enterprise"
+        INTERNAL = "internal", "Internal"
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     email = models.EmailField(unique=True, db_index=True)
