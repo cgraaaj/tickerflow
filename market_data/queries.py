@@ -5,9 +5,10 @@ All queries target the `options` schema directly and use parameterized
 statements to prevent SQL injection. The hypertable `options.ticker_ts`
 has ~1B rows with indexes on (instrument_id, time_stamp DESC).
 
-Candle queries for 1m, 5m, and 15m intervals are routed to pre-computed
-continuous aggregates (cagg_candles_*) for orders-of-magnitude speedup.
-Other intervals fall back to real-time time_bucket aggregation.
+Candle queries always use real-time time_bucket() aggregation on the raw
+hypertable.  Continuous aggregate views (cagg_candles_*) exist but are
+not routed to until refresh policies are active and backfilled.  Set
+USE_CAGG_ROUTING = True once that is done.
 """
 
 import time
@@ -18,7 +19,9 @@ from django.db import connection
 
 logger = logging.getLogger("market_data.queries")
 
-# Map intervals that have continuous aggregates to their view names.
+# Flip to True once cagg refresh policies are active and backfilled.
+USE_CAGG_ROUTING = False
+
 CAGG_VIEWS = {
     "1m": "options.cagg_candles_1m",
     "5m": "options.cagg_candles_5m",
@@ -122,10 +125,10 @@ def get_candles(
     if not pg_interval:
         raise ValueError(f"Unsupported interval '{interval}'. Choose from: {', '.join(INTERVAL_MAP.keys())}")
 
-    cagg_view = CAGG_VIEWS.get(interval)
-
-    if cagg_view:
-        return _candles_from_cagg(cagg_view, instrument_id, start, end, limit)
+    if USE_CAGG_ROUTING:
+        cagg_view = CAGG_VIEWS.get(interval)
+        if cagg_view:
+            return _candles_from_cagg(cagg_view, instrument_id, start, end, limit)
 
     return _candles_from_raw(pg_interval, instrument_id, start, end, limit)
 
