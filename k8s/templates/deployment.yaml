@@ -90,8 +90,8 @@ spec:
               echo "=== Starting app ==="
               exec gunicorn tickerflow.wsgi:application \
                 --bind 0.0.0.0:{{ .Values.service.port }} \
-                --workers 4 \
-                --timeout 120 \
+                --workers {{ .Values.gunicorn.workers | default 2 }} \
+                --timeout {{ .Values.gunicorn.timeout | default 120 }} \
                 --access-logfile - \
                 --error-logfile -
           {{- end }}
