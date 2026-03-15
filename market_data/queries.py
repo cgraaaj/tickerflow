@@ -5,10 +5,9 @@ All queries target the `options` schema directly and use parameterized
 statements to prevent SQL injection. The hypertable `options.ticker_ts`
 has ~1B rows with indexes on (instrument_id, time_stamp DESC).
 
-Candle queries always use real-time time_bucket() aggregation on the raw
-hypertable.  Continuous aggregate views (cagg_candles_*) exist but are
-not routed to until refresh policies are active and backfilled.  Set
-USE_CAGG_ROUTING = True once that is done.
+All timestamps are stored as proper UTC (timestamptz).  Continuous
+aggregate views (cagg_candles_1m/5m/15m) are materialized and used
+for candle queries at those intervals.
 """
 
 import time
@@ -19,8 +18,7 @@ from django.db import connection
 
 logger = logging.getLogger("market_data.queries")
 
-# Flip to True once cagg refresh policies are active and backfilled.
-USE_CAGG_ROUTING = False
+USE_CAGG_ROUTING = True
 
 CAGG_VIEWS = {
     "1m": "options.cagg_candles_1m",
