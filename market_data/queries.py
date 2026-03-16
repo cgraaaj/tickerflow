@@ -400,6 +400,72 @@ def get_ticks_batch(
     return rows, total_count, elapsed_ms
 
 
+def find_atm_instruments_bulk(
+    requests: list[dict],
+    expiry: str | None = None,
+) -> tuple[list[dict], float]:
+    """Find nearest-strike (ATM) instruments for multiple stock+type pairs in one query.
+
+    Each item in *requests* must have:
+        stock_name (str), instrument_type (str: CE/PE), nearest_strike (float)
+
+    Uses a LATERAL join so Postgres finds the single closest-strike row per
+    request — vastly more efficient than N individual queries.
+
+    Returns one row per request (with a ``_req_idx`` field for client-side
+    matching) and the elapsed time in ms.
+    """
+    if not requests:
+        return [], 0.0
+
+    values_parts = []
+    params: list = []
+    for idx, req in enumerate(requests):
+        values_parts.append("(%s, %s, %s, %s)")
+        params.extend([
+            idx,
+            req["stock_name"],
+            req["instrument_type"].upper(),
+            req["nearest_strike"],
+        ])
+
+    values_sql = ", ".join(values_parts)
+
+    expiry_clause = ""
+    if expiry:
+        expiry_clause = "AND i.expiry = %s"
+        params.append(expiry)
+
+    sql = f"""
+        WITH reqs(req_idx, stock_name, inst_type, target_strike) AS (
+            VALUES {values_sql}
+        )
+        SELECT r.req_idx  AS _req_idx,
+               i.id, i.instrument_seq, i.stock_id, i.trading_symbol,
+               i.instrument_key, i.strike_price, i.instrument_type,
+               i.expiry, i.lot_size, i.exchange
+        FROM reqs r
+        JOIN options.stock s ON s.name = r.stock_name
+        JOIN LATERAL (
+            SELECT *
+            FROM options.instrument i2
+            WHERE i2.stock_id = s.id
+              AND i2.instrument_type = r.inst_type
+              {expiry_clause}
+            ORDER BY ABS(i2.strike_price - r.target_strike)
+            LIMIT 1
+        ) i ON true
+        ORDER BY r.req_idx
+    """
+
+    rows, elapsed_ms = _execute(sql, params)
+    logger.info(
+        "find_atm_instruments_bulk count=%d rows=%d elapsed_ms=%.2f",
+        len(requests), len(rows), elapsed_ms,
+    )
+    return rows, elapsed_ms
+
+
 def get_expiries(
     instrument_type: str | None = None,
 ) -> tuple[list[dict], float]:

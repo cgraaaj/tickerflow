@@ -7,6 +7,7 @@ from rest_framework.views import APIView
 from billing.tracking import UsageTrackingMixin
 from . import queries
 from .serializers import (
+    ATMBulkQuerySerializer,
     CandleQuerySerializer,
     ExpiryQuerySerializer,
     InstrumentQuerySerializer,
@@ -188,6 +189,34 @@ class CandleListView(UsageTrackingMixin, APIView):
         return Response({
             "count": len(rows),
             "interval": params["interval"],
+            "query_ms": elapsed_ms,
+            "results": rows,
+        })
+
+
+class ATMBulkView(UsageTrackingMixin, APIView):
+    """Find nearest-strike (ATM) instruments for multiple stock+type pairs.
+
+    Accepts a JSON POST body with ``requests`` (list of {stock_name,
+    instrument_type, nearest_strike}) and an optional ``expiry`` date.
+
+    Returns one instrument per request, ordered by request index.
+    Eliminates N+1 round-trips for backtest pipelines that look up
+    ATM instruments for hundreds of trades.
+    """
+
+    def post(self, request):
+        serializer = ATMBulkQuerySerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        params = serializer.validated_data
+
+        rows, elapsed_ms = queries.find_atm_instruments_bulk(
+            requests=params["requests"],
+            expiry=str(params["expiry"]) if params["expiry"] else None,
+        )
+
+        return Response({
+            "count": len(rows),
             "query_ms": elapsed_ms,
             "results": rows,
         })

@@ -157,6 +157,38 @@ class InstrumentQuerySerializer(serializers.Serializer):
         return data
 
 
+MAX_ATM_BULK_REQUESTS = 100
+
+
+class ATMBulkRequestItemSerializer(serializers.Serializer):
+    """Single item in a bulk ATM instrument lookup."""
+    stock_name = serializers.CharField()
+    instrument_type = serializers.ChoiceField(choices=["CE", "PE"])
+    nearest_strike = serializers.FloatField()
+
+
+class ATMBulkQuerySerializer(serializers.Serializer):
+    """Validate POST body for bulk ATM instrument lookup.
+
+    Accepts a JSON body:
+        {
+            "requests": [ {stock_name, instrument_type, nearest_strike}, ... ],
+            "expiry": "YYYY-MM-DD"  (optional)
+        }
+    """
+    requests = ATMBulkRequestItemSerializer(many=True)
+    expiry = serializers.DateField(required=False, default=None)
+
+    def validate_requests(self, value):
+        if len(value) > MAX_ATM_BULK_REQUESTS:
+            raise serializers.ValidationError(
+                f"Maximum {MAX_ATM_BULK_REQUESTS} items allowed, got {len(value)}."
+            )
+        if len(value) == 0:
+            raise serializers.ValidationError("At least one request item is required.")
+        return value
+
+
 class ExpiryQuerySerializer(serializers.Serializer):
     """Validate query parameters for the expiries endpoint."""
 
