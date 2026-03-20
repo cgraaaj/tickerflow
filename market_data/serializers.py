@@ -189,6 +189,13 @@ class ATMBulkQuerySerializer(serializers.Serializer):
         return value
 
 
+class StockQuerySerializer(serializers.Serializer):
+    """Validate query parameters for the stocks endpoint."""
+
+    include_inactive = serializers.BooleanField(required=False, default=False)
+    search = serializers.CharField(required=False, default=None, allow_blank=True)
+
+
 class ExpiryQuerySerializer(serializers.Serializer):
     """Validate query parameters for the expiries endpoint."""
 

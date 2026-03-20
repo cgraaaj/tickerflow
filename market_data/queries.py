@@ -213,15 +213,30 @@ def _candles_from_raw(
     return rows, elapsed_ms
 
 
-def get_stocks() -> tuple[list[dict], float]:
-    """List all active stocks."""
-    sql = """
+def get_stocks(
+    include_inactive: bool = False,
+    search: str | None = None,
+) -> tuple[list[dict], float]:
+    """List stocks, optionally including inactive (delisted from F&O) ones."""
+    where_clauses: list[str] = []
+    params: list = []
+
+    if not include_inactive:
+        where_clauses.append("is_active = true")
+
+    if search:
+        where_clauses.append("name ILIKE %s")
+        params.append(f"%{search}%")
+
+    where = ("WHERE " + " AND ".join(where_clauses)) if where_clauses else ""
+
+    sql = f"""
         SELECT id, name, instrument_key, is_active
         FROM options.stock
-        WHERE is_active = true
-        ORDER BY name
+        {where}
+        ORDER BY is_active DESC, name
     """
-    return _execute(sql, [])
+    return _execute(sql, params)
 
 
 def get_instruments(

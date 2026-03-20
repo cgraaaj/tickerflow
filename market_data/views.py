@@ -11,6 +11,7 @@ from .serializers import (
     CandleQuerySerializer,
     ExpiryQuerySerializer,
     InstrumentQuerySerializer,
+    StockQuerySerializer,
     TickQuerySerializer,
 )
 
@@ -18,10 +19,22 @@ logger = logging.getLogger("market_data.views")
 
 
 class StockListView(UsageTrackingMixin, APIView):
-    """List all active stocks from the options schema."""
+    """List stocks from the options schema.
+
+    Query params:
+        include_inactive (bool, optional): include stocks no longer in F&O (default false)
+        search (str, optional): case-insensitive name search
+    """
 
     def get(self, request):
-        stocks, elapsed_ms = queries.get_stocks()
+        serializer = StockQuerySerializer(data=request.query_params)
+        serializer.is_valid(raise_exception=True)
+        params = serializer.validated_data
+
+        stocks, elapsed_ms = queries.get_stocks(
+            include_inactive=params["include_inactive"],
+            search=params.get("search") or None,
+        )
         return Response({
             "count": len(stocks),
             "query_ms": elapsed_ms,
