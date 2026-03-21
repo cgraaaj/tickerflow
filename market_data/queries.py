@@ -448,7 +448,8 @@ def find_atm_instruments_bulk(
 
     expiry_clause = ""
     if expiry:
-        expiry_clause = "AND i.expiry = %s"
+        # Must reference i2 — the LATERAL subquery alias (not i, which is the outer alias).
+        expiry_clause = "AND i2.expiry = %s"
         params.append(expiry)
 
     sql = f"""
