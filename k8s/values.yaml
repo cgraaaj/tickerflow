@@ -83,7 +83,7 @@ affinity: {}
 
 externalDatabase:
   enabled: true
-  host: "192.168.1.40"
+  host: "10.19.94.40"
   port: 5432
 
 vault:

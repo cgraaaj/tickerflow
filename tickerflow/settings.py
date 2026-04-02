@@ -87,7 +87,7 @@ DATABASES = {
         "NAME": os.environ.get("DB_NAME", "stock-dumps"),
         "USER": os.environ.get("DB_USER", "sd_admin"),
         "PASSWORD": _db_password,
-        "HOST": os.environ.get("DB_HOST", "192.168.1.40"),
+        "HOST": os.environ.get("DB_HOST", "10.19.94.40"),
         "PORT": os.environ.get("DB_PORT", "5432"),
         "OPTIONS": {
             "options": "-c search_path=tickerflow,public",

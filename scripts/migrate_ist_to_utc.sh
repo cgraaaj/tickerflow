@@ -13,7 +13,7 @@ set -euo pipefail
 # Requires ~184 GB temporary disk during decompression.
 #
 
-DB_HOST="${DB_HOST:-192.168.1.40}"
+DB_HOST="${DB_HOST:-10.19.94.40}"
 DB_USER="${DB_USER:-sd_admin}"
 DB_NAME="${DB_NAME:-stock-dumps}"
 DB_PORT="${DB_PORT:-5432}"
