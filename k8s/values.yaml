@@ -124,8 +124,23 @@ runtime:
       - "db-creds"
 
 gunicorn:
+  # Concurrency math (post-2026-04-19 incident):
+  #   in-flight requests per pod = workers * threads
+  #   Phase 3 client uses TICKERFLOW_API_CONCURRENCY=40 across all pods.
+  #   With replicaCount=2, 2 workers * 8 threads = 16 in-flight per pod
+  #   → 32 cluster-wide, leaving headroom for the 80-stock atm-bulk burst.
+  #
+  # Threads are GIL-bound but Postgres calls release the GIL during
+  # network I/O, so this is the right model for a read-mostly DB API.
+  # If sustained throughput climbs, prefer scaling replicaCount over
+  # threads (CONN_MAX_AGE=300 already keeps a live conn per worker, so
+  # adding workers also adds DB connections — verify against PG max_conn
+  # or front the DB with pgbouncer in transaction-pool mode).
   workers: 2
+  workerClass: gthread
+  threads: 8
   timeout: 120
+  gracefulTimeout: 30
 
 env:
   DJANGO_DEBUG: "False"
@@ -133,6 +148,13 @@ env:
   CSRF_TRUSTED_ORIGINS: "https://tickerflow.cgraaaj.in"
   DB_NAME: "stock-dumps"
   DB_CONN_MAX_AGE: "300"
+  # Production cluster has TimescaleDB → run the cagg migration normally.
+  DJANGO_SKIP_TS_MIGRATIONS: "0"
+  # Observability — set SENTRY_DSN as a secret to enable Sentry; otherwise
+  # init is a no-op. SENTRY_RELEASE is injected from the image tag by
+  # k8s/templates/deployment.yaml so each rollout is grouped in Sentry.
+  SENTRY_ENVIRONMENT: "production"
+  SENTRY_TRACES_SAMPLE_RATE: "0.05"
 
 secrets:
   DJANGO_SECRET_KEY: "CHANGE-ME-generate-a-long-random-string"

@@ -5,8 +5,12 @@ def _ensure_tickerflow_schema(sender, **kwargs):
     """
     Create the 'tickerflow' schema if it doesn't exist.
     Runs before every migrate so tables land in the correct schema on fresh DBs.
+    Skipped on non-Postgres backends (SQLite in CI smoke tests).
     """
     from django.db import connection
+
+    if connection.vendor != "postgresql":
+        return
 
     with connection.cursor() as cursor:
         cursor.execute("CREATE SCHEMA IF NOT EXISTS tickerflow")

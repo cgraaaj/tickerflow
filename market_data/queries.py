@@ -415,6 +415,40 @@ def get_ticks_batch(
     return rows, total_count, elapsed_ms
 
 
+def find_atm_instrument_one(
+    stock_name: str,
+    instrument_type: str,
+    nearest_strike: float,
+    expiry: str | None = None,
+) -> dict | None:
+    """Per-row ATM lookup used as a fallback when the bulk path fails.
+
+    Returns ``None`` if no instrument matches (silent drop) so the caller
+    can record the row index in ``failed_indices`` instead of 500-ing.
+    """
+    params: list = [stock_name, instrument_type.upper()]
+    expiry_clause = ""
+    if expiry:
+        expiry_clause = "AND i.expiry = %s"
+        params.append(expiry)
+    params.append(nearest_strike)
+
+    sql = f"""
+        SELECT i.id, i.instrument_seq, i.stock_id, i.trading_symbol,
+               i.instrument_key, i.strike_price, i.instrument_type,
+               i.expiry, i.lot_size, i.exchange
+        FROM options.stock s
+        JOIN options.instrument i ON i.stock_id = s.id
+        WHERE s.name = %s
+          AND i.instrument_type = %s
+          {expiry_clause}
+        ORDER BY ABS(i.strike_price - %s)
+        LIMIT 1
+    """
+    rows, _ = _execute(sql, params)
+    return rows[0] if rows else None
+
+
 def find_atm_instruments_bulk(
     requests: list[dict],
     expiry: str | None = None,

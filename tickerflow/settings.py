@@ -32,6 +32,7 @@ INSTALLED_APPS = [
 ]
 
 MIDDLEWARE = [
+    "tickerflow.observability.RequestIDMiddleware",
     "django.middleware.security.SecurityMiddleware",
     "whitenoise.middleware.WhiteNoiseMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
@@ -120,6 +121,11 @@ STORAGES = {
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
+# Skip Timescale-specific migrations when running against a plain Postgres
+# (CI, local dev, smoke tests). The runtime cluster always sets this to "0".
+if os.environ.get("DJANGO_SKIP_TS_MIGRATIONS", "0") == "1":
+    MIGRATION_MODULES = {"market_data": None}
+
 # --- DRF ---
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": [
@@ -133,6 +139,7 @@ REST_FRAMEWORK = {
     ],
     "DEFAULT_PAGINATION_CLASS": "rest_framework.pagination.LimitOffsetPagination",
     "PAGE_SIZE": 100,
+    "EXCEPTION_HANDLER": "tickerflow.exceptions.structured_exception_handler",
 }
 
 # --- CORS ---
@@ -163,12 +170,19 @@ RATE_LIMITS = {
 RATE_LIMIT_WINDOW_SECONDS = 60
 
 # --- Logging ---
+# Every record carries a `request_id` injected by RequestIDFilter so that
+# `kubectl logs ... | grep <rid>` returns the full causal chain for one call.
 LOGGING = {
     "version": 1,
     "disable_existing_loggers": False,
+    "filters": {
+        "request_id": {
+            "()": "tickerflow.observability.RequestIDFilter",
+        },
+    },
     "formatters": {
         "verbose": {
-            "format": "[{asctime}] {levelname} {name} {message}",
+            "format": "[{asctime}] {levelname} rid={request_id} {name} {message}",
             "style": "{",
         },
     },
@@ -176,7 +190,12 @@ LOGGING = {
         "console": {
             "class": "logging.StreamHandler",
             "formatter": "verbose",
+            "filters": ["request_id"],
         },
+    },
+    "root": {
+        "handlers": ["console"],
+        "level": "WARNING",
     },
     "loggers": {
         "market_data": {
@@ -194,10 +213,49 @@ LOGGING = {
             "level": "INFO",
             "propagate": False,
         },
+        "tickerflow": {
+            "handlers": ["console"],
+            "level": "INFO",
+            "propagate": False,
+        },
         "tickerflow.db_backend": {
             "handlers": ["console"],
             "level": "INFO",
             "propagate": False,
         },
+        "django.request": {
+            "handlers": ["console"],
+            "level": "WARNING",
+            "propagate": False,
+        },
     },
 }
+
+# --- Sentry (optional) ---
+# Hard dependency-free: only imported and initialised when SENTRY_DSN is set,
+# so dev/CI environments don't pay any cost. ``release`` is set from the image
+# tag injected via env so each rollout is grouped correctly in Sentry.
+SENTRY_DSN = os.environ.get("SENTRY_DSN", "").strip()
+if SENTRY_DSN:
+    try:
+        import sentry_sdk
+        from sentry_sdk.integrations.django import DjangoIntegration
+        from sentry_sdk.integrations.logging import LoggingIntegration
+
+        sentry_sdk.init(
+            dsn=SENTRY_DSN,
+            integrations=[
+                DjangoIntegration(),
+                LoggingIntegration(level=None, event_level=None),
+            ],
+            environment=os.environ.get("SENTRY_ENVIRONMENT", "production"),
+            release=os.environ.get("SENTRY_RELEASE") or os.environ.get("GIT_SHA"),
+            traces_sample_rate=float(os.environ.get("SENTRY_TRACES_SAMPLE_RATE", "0.0")),
+            send_default_pii=False,
+        )
+    except ImportError:
+        # sentry-sdk is an optional install — log once, never crash startup.
+        import logging as _logging
+        _logging.getLogger("tickerflow").warning(
+            "SENTRY_DSN is set but sentry-sdk is not installed; skipping init."
+        )

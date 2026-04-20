@@ -1,10 +1,13 @@
 import logging
+import time
 
+from django.db import DatabaseError
 from rest_framework import status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from billing.tracking import UsageTrackingMixin
+from tickerflow.observability import get_request_id
 from . import queries
 from .serializers import (
     ATMBulkQuerySerializer,
@@ -216,6 +219,23 @@ class ATMBulkView(UsageTrackingMixin, APIView):
     Returns one instrument per request, ordered by request index.
     Eliminates N+1 round-trips for backtest pipelines that look up
     ATM instruments for hundreds of trades.
+
+    Failure semantics
+    -----------------
+    The handler is **partial-success aware**: a single bad row (typo'd
+    stock name, no instrument matches the expiry, etc.) does NOT cause the
+    entire batch to 500. Instead the response includes a ``failed_indices``
+    array so the caller can retry / skip those rows surgically.
+
+    Two failure paths are handled:
+
+    1. Silent miss in the bulk query (LATERAL ``LIMIT 1`` returned 0 rows
+       for an input row) — the index is added to ``failed_indices`` with
+       ``reason="no_match"``.
+    2. Bulk query raised a ``DatabaseError`` (timeout, broken connection,
+       Vault credential rotation race, malformed batch). We fall back to
+       per-row lookups so the rows that *do* succeed are still returned;
+       the rows that fail are reported in ``failed_indices``.
     """
 
     def post(self, request):
@@ -223,13 +243,88 @@ class ATMBulkView(UsageTrackingMixin, APIView):
         serializer.is_valid(raise_exception=True)
         params = serializer.validated_data
 
-        rows, elapsed_ms = queries.find_atm_instruments_bulk(
-            requests=params["requests"],
-            expiry=str(params["expiry"]) if params["expiry"] else None,
-        )
+        req_items: list[dict] = params["requests"]
+        expiry_str = str(params["expiry"]) if params["expiry"] else None
 
-        return Response({
+        rows, elapsed_ms, failed = self._resolve_with_fallback(req_items, expiry_str)
+
+        body = {
             "count": len(rows),
             "query_ms": elapsed_ms,
             "results": rows,
-        })
+            "failed_indices": failed,
+        }
+        http_status = (
+            status.HTTP_207_MULTI_STATUS if failed and rows else
+            status.HTTP_502_BAD_GATEWAY if failed and not rows else
+            status.HTTP_200_OK
+        )
+        return Response(body, status=http_status)
+
+    @staticmethod
+    def _resolve_with_fallback(
+        req_items: list[dict],
+        expiry_str: str | None,
+    ) -> tuple[list[dict], float, list[dict]]:
+        """Run the bulk query first; on DB error fall back row-by-row.
+
+        Returns ``(rows, elapsed_ms, failed_indices)`` where each entry in
+        ``failed_indices`` is ``{"index": int, "reason": str}``.
+        """
+        request_id = get_request_id()
+
+        try:
+            rows, elapsed_ms = queries.find_atm_instruments_bulk(
+                requests=req_items,
+                expiry=expiry_str,
+            )
+            seen = {row["_req_idx"] for row in rows}
+            failed = [
+                {"index": i, "reason": "no_match"}
+                for i in range(len(req_items))
+                if i not in seen
+            ]
+            if failed:
+                logger.warning(
+                    "atm-bulk partial: %d/%d rows missing rid=%s indices=%s",
+                    len(failed), len(req_items), request_id,
+                    [f["index"] for f in failed][:20],
+                )
+            return rows, elapsed_ms, failed
+
+        except DatabaseError as exc:
+            logger.exception(
+                "atm-bulk query failed, falling back row-by-row rid=%s err=%s",
+                request_id, exc,
+            )
+
+        rows: list[dict] = []
+        failed: list[dict] = []
+        t0 = time.monotonic()
+        for idx, item in enumerate(req_items):
+            try:
+                hit = queries.find_atm_instrument_one(
+                    stock_name=item["stock_name"],
+                    instrument_type=item["instrument_type"],
+                    nearest_strike=item["nearest_strike"],
+                    expiry=expiry_str,
+                )
+            except DatabaseError as exc:
+                logger.warning(
+                    "atm-bulk fallback row %d failed rid=%s err=%s",
+                    idx, request_id, exc,
+                )
+                failed.append({"index": idx, "reason": "db_error"})
+                continue
+            except (KeyError, AttributeError, ValueError) as exc:
+                failed.append({"index": idx, "reason": f"bad_input: {exc}"})
+                continue
+
+            if hit is None:
+                failed.append({"index": idx, "reason": "no_match"})
+            else:
+                hit["_req_idx"] = idx
+                rows.append(hit)
+
+        elapsed_ms = round((time.monotonic() - t0) * 1000, 2)
+        return rows, elapsed_ms, failed

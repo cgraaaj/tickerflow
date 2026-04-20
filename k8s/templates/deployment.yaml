@@ -91,7 +91,10 @@ spec:
               exec gunicorn tickerflow.wsgi:application \
                 --bind 0.0.0.0:{{ .Values.service.port }} \
                 --workers {{ .Values.gunicorn.workers | default 2 }} \
+                --worker-class {{ .Values.gunicorn.workerClass | default "gthread" }} \
+                --threads {{ .Values.gunicorn.threads | default 8 }} \
                 --timeout {{ .Values.gunicorn.timeout | default 120 }} \
+                --graceful-timeout {{ .Values.gunicorn.gracefulTimeout | default 30 }} \
                 --access-logfile - \
                 --error-logfile -
           {{- end }}
@@ -100,6 +103,8 @@ spec:
               containerPort: {{ .Values.service.port }}
               protocol: TCP
           env:
+            - name: SENTRY_RELEASE
+              value: {{ .Values.image.tag | default .Chart.AppVersion | quote }}
             {{- range $key, $value := .Values.env }}
             - name: {{ $key }}
               value: {{ $value | quote }}
